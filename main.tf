@@ -376,3 +376,47 @@ resource "aws_iam_role_policy" "process_telemetry_dynamodb_policy" {
     ]
   })
 }
+
+# Archive Lambda code
+data "archive_file" "process_telemetry_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/lambda/process_telemetry"
+  output_path = "${path.module}/lambda/process_telemetry.zip"
+}
+
+# Lambda function
+resource "aws_lambda_function" "process_telemetry" {
+  filename         = data.archive_file.process_telemetry_zip.output_path
+  function_name    = "${var.project_name}-process-telemetry-${var.env}"
+  role             = aws_iam_role.process_telemetry_lambda_role.arn
+  handler          = "lambda_function.lambda_handler"
+  source_code_hash = data.archive_file.process_telemetry_zip.output_base64sha256
+  runtime          = "python3.11"
+  timeout          = 60
+  memory_size      = 512
+
+  environment {
+    variables = {
+      S3_BUCKET      = aws_s3_bucket.raw_telemetry.id
+      LATEST_TABLE   = aws_dynamodb_table.latest_readings.name
+      ALERTS_TABLE   = aws_dynamodb_table.alerts.name
+      TEMP_THRESHOLD = "80.0"
+      VIB_THRESHOLD  = "3.0"
+    }
+  }
+}
+
+# CloudWatch Log Group
+resource "aws_cloudwatch_log_group" "process_telemetry_logs" {
+  name              = "/aws/lambda/${aws_lambda_function.process_telemetry.function_name}"
+  retention_in_days = 7
+}
+
+# SQS trigger for Lambda
+resource "aws_lambda_event_source_mapping" "sqs_trigger" {
+  event_source_arn                   = aws_sqs_queue.telemetry_queue.arn
+  function_name                      = aws_lambda_function.process_telemetry.arn
+  batch_size                         = 100
+  maximum_batching_window_in_seconds = 5
+}
+
