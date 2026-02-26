@@ -129,7 +129,7 @@ resource "aws_cloudwatch_log_group" "get_asset_health_logs" {
 resource "aws_apigatewayv2_api" "asset_api" {
   name          = "${var.project_name}-api-${var.env}"
   protocol_type = "HTTP"
-  
+
   cors_configuration {
     allow_origins = ["*"]
     allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
@@ -142,9 +142,9 @@ resource "aws_apigatewayv2_api" "asset_api" {
 resource "aws_apigatewayv2_integration" "get_asset_health_integration" {
   api_id           = aws_apigatewayv2_api.asset_api.id
   integration_type = "AWS_PROXY"
-  
-  integration_uri    = aws_lambda_function.get_asset_health.invoke_arn
-  integration_method = "POST"
+
+  integration_uri        = aws_lambda_function.get_asset_health.invoke_arn
+  integration_method     = "POST"
   payload_format_version = "2.0"
 }
 
@@ -160,7 +160,7 @@ resource "aws_apigatewayv2_stage" "default_stage" {
   api_id      = aws_apigatewayv2_api.asset_api.id
   name        = "$default"
   auto_deploy = true
-  
+
   access_log_settings {
     destination_arn = aws_cloudwatch_log_group.api_gateway_logs.arn
     format = jsonencode({
@@ -189,4 +189,29 @@ resource "aws_lambda_permission" "api_gateway_invoke" {
 resource "aws_cloudwatch_log_group" "api_gateway_logs" {
   name              = "/aws/apigateway/${var.project_name}-api-${var.env}"
   retention_in_days = 7
+}
+
+resource "aws_dynamodb_table" "alerts" {
+  name         = "${var.project_name}-alerts-${var.env}"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "asset_id"
+  range_key    = "ts"
+
+  attribute {
+    name = "asset_id"
+    type = "S"
+  }
+
+  attribute {
+    name = "ts"
+    type = "S"
+  }
+
+  server_side_encryption {
+    enabled = true
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
 }
