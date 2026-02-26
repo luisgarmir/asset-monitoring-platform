@@ -472,3 +472,93 @@ resource "aws_iot_topic_rule" "telemetry_rule" {
   }
 }
 
+# Data source for IoT endpoint
+data "aws_iot_endpoint" "iot_endpoint" {
+  endpoint_type = "iot:Data-ATS"
+}
+
+# Thing Type (optional, for organization)
+resource "aws_iot_thing_type" "motor" {
+  name = "${var.project_name}-motor-${var.env}"
+
+  properties {
+    description           = "Industrial motor sensors"
+    searchable_attributes = ["manufacturer", "model", "location"]
+  }
+}
+
+# IoT Policy (shared across all devices)
+resource "aws_iot_policy" "device_policy" {
+  name = "${var.project_name}-device-policy-${var.env}"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "iot:Connect"
+        ]
+        Resource = "arn:aws:iot:${var.aws_region}:*:client/${var.project_name}-*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "iot:Publish"
+        ]
+        Resource = "arn:aws:iot:${var.aws_region}:*:topic/telemetry/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "iot:Subscribe"
+        ]
+        Resource = "arn:aws:iot:${var.aws_region}:*:topicfilter/telemetry/*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "iot:Receive"
+        ]
+        Resource = "arn:aws:iot:${var.aws_region}:*:topic/telemetry/*"
+      }
+    ]
+  })
+}
+
+
+# Device 1
+resource "aws_iot_thing" "device_1" {
+  name            = "${var.project_name}-device-1-${var.env}"
+  thing_type_name = aws_iot_thing_type.motor.name
+
+  attributes = {
+    manufacturer = "test"
+    model        = "v1"
+    location     = "lab-1"
+  }
+}
+
+# Device 2
+resource "aws_iot_thing" "device_2" {
+  name            = "${var.project_name}-device-2-${var.env}"
+  thing_type_name = aws_iot_thing_type.motor.name
+
+  attributes = {
+    manufacturer = "test"
+    model        = "v1"
+    location     = "lab-2"
+  }
+}
+
+# Device 3
+resource "aws_iot_thing" "device_3" {
+  name            = "${var.project_name}-device-3-${var.env}"
+  thing_type_name = aws_iot_thing_type.motor.name
+
+  attributes = {
+    manufacturer = "test"
+    model        = "v1"
+    location     = "lab-3"
+  }
+}

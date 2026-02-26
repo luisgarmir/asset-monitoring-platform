@@ -1,23 +1,25 @@
-# Terraform local state
+# Terraform
 *.tfstate
 *.tfstate.*
-terraform.tfstate
-terraform.tfstate.backup
-
-# Terraform working directory
 .terraform/
+*.tfvars  # If you have sensitive values here
 
-# Terraform lock file (OPTIONAL — see note below)
-# .terraform.lock.hcl
+# AWS Credentials
+.aws/
+*credentials*
 
-# Crash logs
-crash.log
-crash.*.log
+# Certificates
+certs/
+*.pem
+*.key
+*.crt
 
-# CLI config files
-.terraformrc
-terraform.rc
+# Environment
+.env
+.env.*
 
-# Sensitive variable files
-*.tfvars
-*.tfvars.json
+gui/
+*.sh
+# OS
+.DS_Store
+Thumbs.db
