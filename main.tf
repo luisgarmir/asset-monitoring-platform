@@ -273,3 +273,106 @@ resource "aws_s3_bucket_lifecycle_configuration" "raw_telemetry_lifecycle" {
     }
   }
 }
+
+# IAM role for process_telemetry Lambda
+resource "aws_iam_role" "process_telemetry_lambda_role" {
+  name = "${var.project_name}-process-telemetry-lambda-role-${var.env}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        }
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+}
+
+# CloudWatch Logs policy
+resource "aws_iam_role_policy" "process_telemetry_cloudwatch_policy" {
+  name = "cloudwatch-logs-policy"
+  role = aws_iam_role.process_telemetry_lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "arn:aws:logs:${var.aws_region}:*:log-group:/aws/lambda/${var.project_name}-process-telemetry-${var.env}:*"
+      }
+    ]
+  })
+}
+
+# SQS read/delete policy
+resource "aws_iam_role_policy" "process_telemetry_sqs_policy" {
+  name = "sqs-policy"
+  role = aws_iam_role.process_telemetry_lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes"
+        ]
+        Resource = aws_sqs_queue.telemetry_queue.arn
+      }
+    ]
+  })
+}
+
+# S3 write policy
+resource "aws_iam_role_policy" "process_telemetry_s3_policy" {
+  name = "s3-write-policy"
+  role = aws_iam_role.process_telemetry_lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:PutObjectAcl"
+        ]
+        Resource = "${aws_s3_bucket.raw_telemetry.arn}/*"
+      }
+    ]
+  })
+}
+
+# DynamoDB write policy (both tables)
+resource "aws_iam_role_policy" "process_telemetry_dynamodb_policy" {
+  name = "dynamodb-write-policy"
+  role = aws_iam_role.process_telemetry_lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem"
+        ]
+        Resource = [
+          aws_dynamodb_table.latest_readings.arn,
+          aws_dynamodb_table.alerts.arn
+        ]
+      }
+    ]
+  })
+}
