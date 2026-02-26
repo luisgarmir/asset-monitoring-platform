@@ -420,3 +420,55 @@ resource "aws_lambda_event_source_mapping" "sqs_trigger" {
   maximum_batching_window_in_seconds = 5
 }
 
+# IAM role for IoT Rule
+resource "aws_iam_role" "iot_rule_role" {
+  name = "${var.project_name}-iot-rule-role-${var.env}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "iot.amazonaws.com"
+        }
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+}
+
+# SQS write policy for IoT Rule
+resource "aws_iam_role_policy" "iot_rule_sqs_policy" {
+  name = "sqs-write-policy"
+  role = aws_iam_role.iot_rule_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "sqs:SendMessage"
+        ]
+        Resource = aws_sqs_queue.telemetry_queue.arn
+      }
+    ]
+  })
+}
+
+# IoT Topic Rule
+resource "aws_iot_topic_rule" "telemetry_rule" {
+  name        = "${replace(var.project_name, "-", "_")}_telemetry_rule_${var.env}"
+  description = "Route telemetry messages to SQS"
+  enabled     = true
+  sql         = "SELECT * FROM 'telemetry/#'"
+  sql_version = "2016-03-23"
+
+  sqs {
+    queue_url  = aws_sqs_queue.telemetry_queue.url
+    role_arn   = aws_iam_role.iot_rule_role.arn
+    use_base64 = false
+  }
+}
+
