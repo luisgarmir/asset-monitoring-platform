@@ -1,11 +1,10 @@
-# SQS Dead Letter Queue
+# SQS
 resource "aws_sqs_queue" "telemetry_dlq" {
   name = "${var.project_name}-telemetry-dlq-${var.env}"
 
   message_retention_seconds = 172800 # 2 day
 }
 
-# SQS Main Queue
 resource "aws_sqs_queue" "telemetry_queue" {
   name = "${var.project_name}-telemetry-${var.env}"
 
@@ -17,20 +16,12 @@ resource "aws_sqs_queue" "telemetry_queue" {
   })
 }
 
-# DynamoDB - Latest Readings
-resource "aws_dynamodb_table" "latest_readings" {
-  name         = "${var.project_name}-latest-readings-${var.env}"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "asset_id"
+# Dynamo
+module "dynamodb" {
+  source = "./modules/dynamodb"
 
-  attribute {
-    name = "asset_id"
-    type = "S"
-  }
-
-  server_side_encryption {
-    enabled = true
-  }
+  project_name = var.project_name
+  env          = var.env
 }
 
 # IAM role for get_asset_health Lambda
@@ -88,7 +79,7 @@ resource "aws_iam_role_policy" "get_asset_health_dynamodb_policy" {
           "dynamodb:GetItem",
           "dynamodb:Query"
         ]
-        Resource = aws_dynamodb_table.latest_readings.arn
+        Resource = module.dynamodb.latest_readings_table_arn
       }
     ]
   })
@@ -114,7 +105,7 @@ resource "aws_lambda_function" "get_asset_health" {
 
   environment {
     variables = {
-      DYNAMODB_TABLE = aws_dynamodb_table.latest_readings.name
+      DYNAMODB_TABLE = module.dynamodb.latest_readings_table_name
     }
   }
 }
@@ -189,31 +180,6 @@ resource "aws_lambda_permission" "api_gateway_invoke" {
 resource "aws_cloudwatch_log_group" "api_gateway_logs" {
   name              = "/aws/apigateway/${var.project_name}-api-${var.env}"
   retention_in_days = 7
-}
-
-resource "aws_dynamodb_table" "alerts" {
-  name         = "${var.project_name}-alerts-${var.env}"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "asset_id"
-  range_key    = "ts"
-
-  attribute {
-    name = "asset_id"
-    type = "S"
-  }
-
-  attribute {
-    name = "ts"
-    type = "S"
-  }
-
-  server_side_encryption {
-    enabled = true
-  }
-
-  point_in_time_recovery {
-    enabled = true
-  }
 }
 
 # S3 Objects Raw Telemetry Archive
@@ -369,8 +335,8 @@ resource "aws_iam_role_policy" "process_telemetry_dynamodb_policy" {
           "dynamodb:UpdateItem"
         ]
         Resource = [
-          aws_dynamodb_table.latest_readings.arn,
-          aws_dynamodb_table.alerts.arn
+          module.dynamodb.latest_readings_table_arn,
+          module.dynamodb.alerts_table_arn
         ]
       }
     ]
@@ -398,8 +364,8 @@ resource "aws_lambda_function" "process_telemetry" {
   environment {
     variables = {
       S3_BUCKET      = aws_s3_bucket.raw_telemetry.id
-      LATEST_TABLE   = aws_dynamodb_table.latest_readings.name
-      ALERTS_TABLE   = aws_dynamodb_table.alerts.name
+      LATEST_TABLE   = module.dynamodb.latest_readings_table_name
+      ALERTS_TABLE   = module.dynamodb.alerts_table_name
       TEMP_THRESHOLD = "80.0"
       VIB_THRESHOLD  = "3.0"
     }

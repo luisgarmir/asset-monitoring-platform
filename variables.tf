@@ -21,3 +21,7 @@ variable "aws_region" {
   type        = string
   default     = "us-west-2"
 }
+
+locals {
+  name_prefix = "${var.project_name}-${var.env}"
+}
