@@ -182,64 +182,13 @@ resource "aws_cloudwatch_log_group" "api_gateway_logs" {
   retention_in_days = 7
 }
 
-# S3 Objects Raw Telemetry Archive
-resource "aws_s3_bucket" "raw_telemetry" {
-  bucket = "${var.project_name}-raw-telemetry-${var.env}"
+# Storage
+module "storage" {
+  source = "./modules/storage"
+
+  project_name = var.project_name
+  env          = var.env
 }
-
-# Enable versioning
-resource "aws_s3_bucket_versioning" "raw_telemetry_versioning" {
-  bucket = aws_s3_bucket.raw_telemetry.id
-
-  versioning_configuration {
-    status = "Enabled"
-  }
-}
-
-# Enable encryption
-resource "aws_s3_bucket_server_side_encryption_configuration" "raw_telemetry_encryption" {
-  bucket = aws_s3_bucket.raw_telemetry.id
-
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
-    }
-  }
-}
-
-# Block public access
-resource "aws_s3_bucket_public_access_block" "raw_telemetry_public_access" {
-  bucket = aws_s3_bucket.raw_telemetry.id
-
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
-# Lifecycle policy (optional - archive old data)
-resource "aws_s3_bucket_lifecycle_configuration" "raw_telemetry_lifecycle" {
-  bucket = aws_s3_bucket.raw_telemetry.id
-
-  rule {
-    id     = "archive-old-data"
-    status = "Enabled"
-
-    filter {
-      prefix = "raw/" # Only applies to objects with "raw/" prefix
-    }
-
-    transition {
-      days          = 90
-      storage_class = "GLACIER"
-    }
-
-    expiration {
-      days = 365
-    }
-  }
-}
-
 # IAM role for process_telemetry Lambda
 resource "aws_iam_role" "process_telemetry_lambda_role" {
   name = "${var.project_name}-process-telemetry-lambda-role-${var.env}"
@@ -304,7 +253,6 @@ resource "aws_iam_role_policy" "process_telemetry_sqs_policy" {
 resource "aws_iam_role_policy" "process_telemetry_s3_policy" {
   name = "s3-write-policy"
   role = aws_iam_role.process_telemetry_lambda_role.id
-
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -314,7 +262,7 @@ resource "aws_iam_role_policy" "process_telemetry_s3_policy" {
           "s3:PutObject",
           "s3:PutObjectAcl"
         ]
-        Resource = "${aws_s3_bucket.raw_telemetry.arn}/*"
+        Resource = "${module.storage.bucket_arn}/*"
       }
     ]
   })
@@ -363,7 +311,7 @@ resource "aws_lambda_function" "process_telemetry" {
 
   environment {
     variables = {
-      S3_BUCKET      = aws_s3_bucket.raw_telemetry.id
+      S3_BUCKET      = module.storage.bucket_id
       LATEST_TABLE   = module.dynamodb.latest_readings_table_name
       ALERTS_TABLE   = module.dynamodb.alerts_table_name
       TEMP_THRESHOLD = "80.0"
