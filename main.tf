@@ -24,7 +24,8 @@ module "dynamodb" {
   env          = var.env
 }
 
-# IAM role for get_asset_health Lambda
+# get_asset_health Lambda
+# IAM role - get_asset_health Lambda
 resource "aws_iam_role" "get_asset_health_lambda_role" {
   name = "${var.project_name}-get-asset-health-lambda-role-${var.env}"
 
@@ -116,6 +117,7 @@ resource "aws_cloudwatch_log_group" "get_asset_health_logs" {
   retention_in_days = 7
 }
 
+
 # HTTP API
 resource "aws_apigatewayv2_api" "asset_api" {
   name          = "${var.project_name}-api-${var.env}"
@@ -182,6 +184,7 @@ resource "aws_cloudwatch_log_group" "api_gateway_logs" {
   retention_in_days = 7
 }
 
+
 # Storage
 module "storage" {
   source = "./modules/storage"
@@ -189,7 +192,9 @@ module "storage" {
   project_name = var.project_name
   env          = var.env
 }
-# IAM role for process_telemetry Lambda
+
+# Process Lambda
+# IAM role for process_telemetry for lambda
 resource "aws_iam_role" "process_telemetry_lambda_role" {
   name = "${var.project_name}-process-telemetry-lambda-role-${var.env}"
 
@@ -207,7 +212,7 @@ resource "aws_iam_role" "process_telemetry_lambda_role" {
   })
 }
 
-# CloudWatch Logs policy
+# CloudWatch Logs policy for lambda
 resource "aws_iam_role_policy" "process_telemetry_cloudwatch_policy" {
   name = "cloudwatch-logs-policy"
   role = aws_iam_role.process_telemetry_lambda_role.id
@@ -228,7 +233,7 @@ resource "aws_iam_role_policy" "process_telemetry_cloudwatch_policy" {
   })
 }
 
-# SQS read/delete policy
+# SQS read/delete policy for lambda
 resource "aws_iam_role_policy" "process_telemetry_sqs_policy" {
   name = "sqs-policy"
   role = aws_iam_role.process_telemetry_lambda_role.id
@@ -249,7 +254,7 @@ resource "aws_iam_role_policy" "process_telemetry_sqs_policy" {
   })
 }
 
-# S3 write policy
+# S3 write policy for lambda
 resource "aws_iam_role_policy" "process_telemetry_s3_policy" {
   name = "s3-write-policy"
   role = aws_iam_role.process_telemetry_lambda_role.id
@@ -320,7 +325,7 @@ resource "aws_lambda_function" "process_telemetry" {
   }
 }
 
-# CloudWatch Log Group
+# CloudWatch Log Group for lambda
 resource "aws_cloudwatch_log_group" "process_telemetry_logs" {
   name              = "/aws/lambda/${aws_lambda_function.process_telemetry.function_name}"
   retention_in_days = 7
@@ -334,145 +339,14 @@ resource "aws_lambda_event_source_mapping" "sqs_trigger" {
   maximum_batching_window_in_seconds = 5
 }
 
-# IAM role for IoT Rule
-resource "aws_iam_role" "iot_rule_role" {
-  name = "${var.project_name}-iot-rule-role-${var.env}"
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Principal = {
-          Service = "iot.amazonaws.com"
-        }
-        Action = "sts:AssumeRole"
-      }
-    ]
-  })
-}
+# IoT
+module "iot_core" {
+  source = "./modules/iot-core"
 
-# SQS write policy for IoT Rule
-resource "aws_iam_role_policy" "iot_rule_sqs_policy" {
-  name = "sqs-write-policy"
-  role = aws_iam_role.iot_rule_role.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "sqs:SendMessage"
-        ]
-        Resource = aws_sqs_queue.telemetry_queue.arn
-      }
-    ]
-  })
-}
-
-# IoT Topic Rule
-resource "aws_iot_topic_rule" "telemetry_rule" {
-  name        = "${replace(var.project_name, "-", "_")}_telemetry_rule_${var.env}"
-  description = "Route telemetry messages to SQS"
-  enabled     = true
-  sql         = "SELECT * FROM 'telemetry/#'"
-  sql_version = "2016-03-23"
-
-  sqs {
-    queue_url  = aws_sqs_queue.telemetry_queue.url
-    role_arn   = aws_iam_role.iot_rule_role.arn
-    use_base64 = false
-  }
-}
-
-# Data source for IoT endpoint
-data "aws_iot_endpoint" "iot_endpoint" {
-  endpoint_type = "iot:Data-ATS"
-}
-
-# Thing Type (optional, for organization)
-resource "aws_iot_thing_type" "motor" {
-  name = "${var.project_name}-motor-${var.env}"
-
-  properties {
-    description           = "Industrial motor sensors"
-    searchable_attributes = ["manufacturer", "model", "location"]
-  }
-}
-
-# IoT Policy (shared across all devices)
-resource "aws_iot_policy" "device_policy" {
-  name = "${var.project_name}-device-policy-${var.env}"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "iot:Connect"
-        ]
-        Resource = "arn:aws:iot:${var.aws_region}:*:client/${var.project_name}-*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "iot:Publish"
-        ]
-        Resource = "arn:aws:iot:${var.aws_region}:*:topic/telemetry/*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "iot:Subscribe"
-        ]
-        Resource = "arn:aws:iot:${var.aws_region}:*:topicfilter/telemetry/*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "iot:Receive"
-        ]
-        Resource = "arn:aws:iot:${var.aws_region}:*:topic/telemetry/*"
-      }
-    ]
-  })
-}
-
-
-# Device 1
-resource "aws_iot_thing" "device_1" {
-  name            = "${var.project_name}-device-1-${var.env}"
-  thing_type_name = aws_iot_thing_type.motor.name
-
-  attributes = {
-    manufacturer = "test"
-    model        = "v1"
-    location     = "lab-1"
-  }
-}
-
-# Device 2
-resource "aws_iot_thing" "device_2" {
-  name            = "${var.project_name}-device-2-${var.env}"
-  thing_type_name = aws_iot_thing_type.motor.name
-
-  attributes = {
-    manufacturer = "test"
-    model        = "v1"
-    location     = "lab-2"
-  }
-}
-
-# Device 3
-resource "aws_iot_thing" "device_3" {
-  name            = "${var.project_name}-device-3-${var.env}"
-  thing_type_name = aws_iot_thing_type.motor.name
-
-  attributes = {
-    manufacturer = "test"
-    model        = "v1"
-    location     = "lab-3"
-  }
+  project_name = var.project_name
+  env          = var.env
+  aws_region    = var.aws_region
+  sqs_queue_url = aws_sqs_queue.telemetry_queue.url
+  sqs_queue_arn = aws_sqs_queue.telemetry_queue.arn
 }
